@@ -1,6 +1,7 @@
 from scipy import stats
 
 import numpy as np
+from itertools import combinations
 
 from help_functions import is_numeric, class_counts
 from performance_evaluation import accuracy, precision_and_recall, confusion_matrix, fscore
@@ -19,9 +20,11 @@ class Question:
     def match(self, row):
         """Answers question for a particular row (sample).
         Return index of which Child Branch to go."""
-
+        print(self.partition_values)
         if self.partition_type == "discrete":
             for t, val in enumerate(self.partition_values):
+                print(t, val)
+                print(row[self.column])
                 if row[self.column] == val:
                     return t
 
@@ -173,39 +176,68 @@ class Decision_Tree:
             if col in copy_used_attributes:
                 continue
 
-            values = X[:, col]
-            unique_values = np.unique(values)
+            # if this column is a continuous attribute: it needs Discretization
+            if is_numeric(X[0, col]):
 
-            # Handling continuous features with percentile-based approach
-            if is_numeric(values[0]):
-                # Define percentiles to evaluate as potential splits
-                # print("Len unique value", len(unique_values))
-                if len(unique_values) == 1:
-                        partition_to_indexesOfSamples = [X[:, col] <= unique_values[0]]
-                        gain = information_gain(
-                            y, partition_to_indexesOfSamples, current_entropy
-                        )
+                this_column = X[:, col]
+                min_ = np.min(this_column)
+                max_ = np.max(this_column)
+
+                # rarely, but in the case that all values are same:
+                if min_ == max_:  # no split (so-called split into only one branch, not two.)
+                    partition_to_indexesOfSamples = [X[:, col] <= max_]
+                    gain = information_gain(y, partition_to_indexesOfSamples, current_entropy)
+                    if gain >= best_gain:
+                        best_gain = gain
+                        best_partition = partition_to_indexesOfSamples
+                        best_question = Question(col, [min_], "interval", self.mode_of_each_column, self.header)
+                        used_attribute = col
+
+                else:
+                    # find best number of splits in terms of information gain
+                    #
+                    for n_splits in range(2, 5):
+                        interval_size = (max_ - min_) / n_splits
+
+                        range_values = []
+                        partitions_to_indexesOfSamples = []
+
+                        # create partitions (intervals)
+                        # n_split = n many intervals
+                        for m in range(n_splits):
+
+                            range_values.append(min_ + (m + 1) * interval_size)
+                            indexes_in_this_interval = []
+
+                            if m == 0:
+                                indexes_in_this_interval = X[:, col] < min_ + interval_size
+                            elif m == n_splits - 1:
+                                indexes_in_this_interval = X[:, col] >= min_ + m * interval_size
+                            else:
+                                indexes_in_this_interval = filter_interval(X, col, min_, m, interval_size)
+
+                            partitions_to_indexesOfSamples.append(indexes_in_this_interval)
+
+                        """ Do not choose such partitioning that some empty tree branches will be created. """
+
+                        empty_interval_alert = False
+
+                        for indexes_in_this_interval in partitions_to_indexesOfSamples:
+                            if len(indexes_in_this_interval) < 1:
+                                empty_interval_alert = True
+                                break
+
+                        # skip the current n_split value. n_split many intervals is not what we are looking for.
+                        if empty_interval_alert:
+                            continue
+
+                        # for n_splits, calculate information gain.
+                        gain = gain_ratio(y, partitions_to_indexesOfSamples, current_entropy)
+
                         if gain >= best_gain:
                             best_gain = gain
-                            best_partition = partition_to_indexesOfSamples
-                            best_question = Question(col, [unique_values[0]], "interval", self.mode_of_each_column, self.header)
-                            used_attribute = col
-                else:
-                    percentiles = [np.percentile(unique_values, p) for p in range(10, 100, 10)]
-                    unique_percentiles = np.unique(percentiles)
-                    for split_value in unique_percentiles:
-                        # print(split_value)
-                        partitions_to_indexesOfSamples = [values <= split_value, values > split_value]
-                        partitions_to_indexesOfSamples = [np.where(partition)[0] for partition in
-                                                          partitions_to_indexesOfSamples]
-                        # Calculate information gain or gain ratio for the split
-                        gain = gain_ratio(y, partitions_to_indexesOfSamples, current_entropy)
-                        # print(gain)
-
-                        if gain > best_gain:
-                            best_gain = gain
                             best_partition = partitions_to_indexesOfSamples
-                            best_question = Question(col, [split_value], "interval", self.mode_of_each_column, self.header)
+                            best_question = Question(col, range_values, "interval", self.mode_of_each_column, self.header)
                             used_attribute = col
 
 
@@ -214,21 +246,47 @@ class Decision_Tree:
                 # multi-way split: as many branches as len(unique_values)
                 unique_values = np.unique(X[:, col])
                 partitions_to_indexesOfSamples = []
+                if len(unique_values) <= 2:
+                    for value in unique_values:
+                        indexes_in_this_partition = X[:, col] == value
+                        partitions_to_indexesOfSamples.append(indexes_in_this_partition)
 
-                for value in unique_values:
-                    indexes_in_this_partition = X[:, col] == value
-                    partitions_to_indexesOfSamples.append(indexes_in_this_partition)
+                    gain = gain_ratio(y, partitions_to_indexesOfSamples, current_entropy)
+                    if gain >= best_gain:
+                        best_gain = gain
+                        best_partition = partitions_to_indexesOfSamples
+                        best_question = Question(col, unique_values, "discrete", self.mode_of_each_column, self.header)
+                        used_attribute = col
+                else:
+                    for subset_size in range(1, len(unique_values) + 1):
+                        for subset in combinations(unique_values, subset_size):
+                            # Create a boolean array indicating whether each sample belongs to the current subset
+                            indexes_in_this_partition = np.isin(X[:, col], subset)
+                            indexes_not_in_this_partition = ~indexes_in_this_partition
+                            partitions_to_indexesOfSamples.append(indexes_in_this_partition)
+                            partitions_to_indexesOfSamples.append(indexes_not_in_this_partition)
+                            gain = gain_ratio(y, partitions_to_indexesOfSamples, current_entropy)
+                            if gain >= best_gain:
+                                best_gain = gain
+                                best_partition = partitions_to_indexesOfSamples
+                                if len(subset) < len(unique_values):
+                                    best_subset = subset + ('Other',)
+                                    best_subset = list(best_subset)
+                                else:
+                                    best_subset = list(subset)
+                                best_question = Question(col, best_subset, "discrete", self.mode_of_each_column, self.header)
+                                used_attribute = col
+                # for value in unique_values:
+                #     indexes_in_this_partition = X[:, col] == value
+                #     partitions_to_indexesOfSamples.append(indexes_in_this_partition)
+                #
+                # gain = gain_ratio(y, partitions_to_indexesOfSamples, current_entropy)
 
-                # gain = information_gain(y, partitions_to_indexesOfSamples, current_entropy)
-                # gain /= len(unique_values)
-                gain = gain_ratio(y, partitions_to_indexesOfSamples, current_entropy)
-
-                if gain >= best_gain:
-                    best_gain = gain
-                    best_partition = partitions_to_indexesOfSamples
-                    best_question = Question(col, unique_values, "discrete", self.mode_of_each_column, self.header)
-                    used_attribute = col
-
+                # if gain >= best_gain:
+                #     best_gain = gain
+                #     best_partition = partitions_to_indexesOfSamples
+                #     best_question = Question(col, unique_values, "discrete", self.mode_of_each_column, self.header)
+                #     used_attribute = col
         copy_used_attributes.append(used_attribute)
         return best_gain, best_partition, best_question, copy_used_attributes
 
@@ -270,7 +328,8 @@ class Decision_Tree:
 
     def _classify(self, row, node):
         """Recursively traverses the decision tree towards a prediction(Leaf node)"""
-
+        print(row)
+        print(node.question)
         # Base case: At a leaf node
         if isinstance(node, Leaf):
             max_count = 0
@@ -327,7 +386,10 @@ def print_tree(node, markerStr="+- ", levelMarkers=[]):
 
     print(f"{markers}{node.question}")
     if node.question.partition_type == "discrete":
+        print(len(node.child_brances))
         for i, child in enumerate(node.child_branches):
+            print(i)
+            print(node.question.partition_values)
             label_answer = "(" + str(node.question.partition_values[i]) + ") -- "
             isLast = i == len(node.child_branches) - 1
             print_tree(child, label_answer, [*levelMarkers, not isLast])

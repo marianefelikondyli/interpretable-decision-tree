@@ -35,7 +35,7 @@ kf = KFold(n_splits=5, random_state=24, shuffle=True)
 print(""" \n---------------------- PART 1 ---------------------------------\n\n\n""")
 
 scores_array = []
-for max_depth in [2, 3, 4, 5, 6]:
+for max_depth in [2]:
     row = []
     print("max_depth : " + str(max_depth))
     i = 1
@@ -53,7 +53,7 @@ for max_depth in [2, 3, 4, 5, 6]:
 
         model = Decision_Tree(max_depth, header)
         model.train(X_train, y_train, mode_of_each_column)
-
+        print_tree(model.root)
         train_acc, train_f, train_p, train_r = model.test(X_train, y_train)
         print(
             "Train : F1 Score: {:.3f}, Accuracy: {:.3f}     ".format(
@@ -79,7 +79,7 @@ for max_depth in [2, 3, 4, 5, 6]:
             )
         )
 
-        print_tree(model.root)
+
 
     print(
         "   AVERAGE :                                                        F1 Score: {:.3f} ,  Accuracy: {:.3f}  , Precision: {:.3f} , Recall: {:.3f}".format(
@@ -127,27 +127,27 @@ scores_df = pd.DataFrame(
 print("\nAverage of 5 folds:\n")
 print(scores_df)
 
-
-""" Print Best Performed Tree """
-
-kf = KFold(n_splits=5, random_state=24, shuffle=True)
-this_fold = 0
-for train_index, test_index in kf.split(X):
-    # we only need fold_4
-    this_fold += 1
-    if this_fold != 4:
-        continue
-
-    X_train, X_test = X[train_index], X[test_index]
-    y_train, y_test = Y[train_index], Y[test_index]
-
-    model = Decision_Tree(maximum_depth=2, header=header)
-    model.train(X_train, y_train, mode_of_each_column)
-
-    train_acc, train_f, train_p, train_r = model.test(X_train, y_train)
-
-    test_acc, test_f, test_p, test_r = model.test(X_test, y_test)
-    break
-
-print("\n\n\n BEST PERFORMING TREE  max_depth=2 : \n")
-print_tree(model.root)
+#
+# """ Print Best Performed Tree """
+#
+# kf = KFold(n_splits=5, random_state=24, shuffle=True)
+# this_fold = 0
+# for train_index, test_index in kf.split(X):
+#     # we only need fold_4
+#     this_fold += 1
+#     if this_fold != 4:
+#         continue
+#
+#     X_train, X_test = X[train_index], X[test_index]
+#     y_train, y_test = Y[train_index], Y[test_index]
+#
+#     model = Decision_Tree(maximum_depth=2, header=header)
+#     model.train(X_train, y_train, mode_of_each_column)
+#
+#     train_acc, train_f, train_p, train_r = model.test(X_train, y_train)
+#
+#     test_acc, test_f, test_p, test_r = model.test(X_test, y_test)
+#     break
+#
+# print("\n\n\n BEST PERFORMING TREE  max_depth=2 : \n")
+# print_tree(model.root)
